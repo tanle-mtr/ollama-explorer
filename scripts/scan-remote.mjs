@@ -63,7 +63,7 @@ if (haveMasscan && CIDRS.length) {
   const rangeArgs = CIDRS.join(" ");
   console.log(`[scan] masscan ${rangeArgs} -p11434 --rate ${MASSCAN_RATE}`);
   const raw = execSync(
-    `sudo masscan ${rangeArgs} -p11434 --rate ${MASSCAN_RATE} --wait 3 --output-format list --output-file /tmp/masscan.txt 2>&1 | tail -5`,
+    "sudo masscan " + rangeArgs + " -p11434 --rate " + MASSCAN_RATE + " --wait 3 --output-format list --output-file /tmp/masscan.txt 2>&1",
     { encoding: "utf8", timeout: 30 * 60 * 1000 }
   );
   console.log(raw.trim());

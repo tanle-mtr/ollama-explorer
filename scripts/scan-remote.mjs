@@ -51,8 +51,8 @@ function randomPublicIp() {
 }
 
 let targets = [];
-if (CIDR.length) {
-  for (const cidr of CIDR) targets.push(...cidrHosts(cidr));
+if (CIDRs.length) {
+  for (const cidr of CIDRs) targets.push(...cidrHosts(cidr));
 } else {
   targets = Array.from({ length: COUNT }, randomPublicIp);
 }

@@ -43,18 +43,8 @@ export default function Home() {
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
 
   // 计算当前选中的所有模型
-  const allSelectedModels = useMemo(() => {
-    const models = new Set(selectedModels);
-    for (const vendorId of selectedVendors) {
-      const vendorModels = computeVendorModels(models.map(m => m)).get(vendorId) || [];
-      // This is wrong - need to use the actual models list
-    }
-    return Array.from(models);
-  }, [selectedModels, selectedVendors, models]);
-
-  // Fix: recalculate properly
   const computedAllSelectedModels = useMemo(() => {
-    const modelSet = new Set(selectedModels);
+    const modelSet = new Set<string>(selectedModels);
     for (const vendorId of selectedVendors) {
       const vendorModels = computeVendorModels(models.map(m => m.name)).get(vendorId) || [];
       vendorModels.forEach(m => modelSet.add(m));

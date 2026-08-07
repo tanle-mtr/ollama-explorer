@@ -6,12 +6,23 @@ import type {
   SearchResult,
   Stats,
 } from "@/lib/types";
+import { createHash } from "node:crypto";
 
 const HOST_PREFIX = "ollama:host:";
 const ALL_KEY = "ollama:all";
 const MODELS_PREFIX = "ollama:models:";
 const NAMES_KEY = "ollama:modelnames";
+const PORT_PREFIX = "ollama:port:";
+const STATUS_PREFIX = "ollama:status:";
+const LASTSEEN_KEY = "ollama:z:lastseen";
+const CACHE_PREFIX = "ollama:cache:";
 const TTL = 90 * 24 * 3600;
+const CACHE_TTL = 60;
+
+function stableKey(filters: SearchFilters, page: number, per: number): string {
+  const raw = JSON.stringify({ f: filters, p: page, n: per });
+  return CACHE_PREFIX + createHash("sha1").update(raw).digest("hex");
+}
 
 export interface OllamaStore {
   upsertHost(r: HostRecord): Promise<void>;
@@ -30,6 +41,12 @@ class RedisStore implements OllamaStore {
       { cmd: "EXPIRE", args: [ALL_KEY, String(TTL)] },
       { cmd: "SADD", args: [NAMES_KEY, ...r.models] },
       { cmd: "EXPIRE", args: [NAMES_KEY, String(TTL)] },
+      { cmd: "SADD", args: [PORT_PREFIX + r.port, r.ip] },
+      { cmd: "EXPIRE", args: [PORT_PREFIX + r.port, String(TTL)] },
+      { cmd: "SADD", args: [STATUS_PREFIX + r.statusCode, r.ip] },
+      { cmd: "EXPIRE", args: [STATUS_PREFIX + r.statusCode, String(TTL)] },
+      { cmd: "ZADD", args: [LASTSEEN_KEY, String(r.lastSeen), r.ip] },
+      { cmd: "EXPIRE", args: [LASTSEEN_KEY, String(TTL)] },
       ...r.models.map((m) => ({
         cmd: "SADD",
         args: [`${MODELS_PREFIX}${m}`, r.ip],
@@ -49,6 +66,12 @@ class RedisStore implements OllamaStore {
 
   private async sunion(keys: string[]): Promise<string[]> {
     const r = await redisCommand("SUNION", keys);
+    return Array.isArray(r) ? (r as string[]) : [];
+  }
+
+  private async sinter(keys: string[]): Promise<string[]> {
+    if (!keys.length) return [];
+    const r = await redisCommand("SINTER", keys);
     return Array.isArray(r) ? (r as string[]) : [];
   }
 
@@ -102,23 +125,68 @@ class RedisStore implements OllamaStore {
     page: number,
     per: number
   ): Promise<SearchResult> {
+    const cacheKey = stableKey(filters, page, per);
+    const cached = await this.cacheGet(cacheKey);
+    if (cached) return cached;
+
     let ips: string[] | null = null;
+    const intersectKeys: string[] = [];
+    if (filters.port) intersectKeys.push(PORT_PREFIX + String(filters.port));
+    if (filters.statusCode)
+      intersectKeys.push(STATUS_PREFIX + String(filters.statusCode));
+
     if (filters.model) {
       const term = normModel(filters.model);
       const names = await this.modelNames();
       const matched = names.filter((n) => matchesModelTerm(n, term));
       if (!matched.length) return { total: 0, results: [] };
-      ips =
+      const modelIps =
         matched.length === 1
           ? await this.smembers(MODELS_PREFIX + matched[0])
           : await this.sunion(matched.map((n) => MODELS_PREFIX + n));
+      if (intersectKeys.length) {
+        const byOther = await this.sinter(intersectKeys);
+        const byOtherSet = new Set(byOther);
+        ips = modelIps.filter((ip) => byOtherSet.has(ip));
+      } else {
+        ips = modelIps;
+      }
+    } else if (intersectKeys.length) {
+      ips = await this.sinter(intersectKeys);
     }
     if (!ips) ips = await this.smembers(ALL_KEY);
+
     const hosts = (await this.getHosts(ips)).filter((h) => h && h.ip);
     const filtered = hosts.filter((h) => matchHost(h, filters));
     filtered.sort((a, b) => b.lastSeen - a.lastSeen);
     const total = filtered.length;
-    return { total, results: filtered.slice((page - 1) * per, page * per) };
+    const result: SearchResult = {
+      total,
+      results: filtered.slice((page - 1) * per, page * per),
+    };
+    await this.cacheSet(cacheKey, result);
+    return result;
+  }
+
+  private async cacheGet(key: string): Promise<SearchResult | null> {
+    try {
+      const r = await redisCommand("GET", [key]);
+      if (typeof r !== "string") return null;
+      const j = JSON.parse(r) as SearchResult;
+      if (j && Array.isArray(j.results) && typeof j.total === "number")
+        return j;
+    } catch {
+      // 缓存失败不影响查询
+    }
+    return null;
+  }
+
+  private async cacheSet(key: string, result: SearchResult): Promise<void> {
+    try {
+      await redisCommand("SET", [key, JSON.stringify(result), "EX", String(CACHE_TTL)]);
+    } catch {
+      // 缓存写失败不影响查询
+    }
   }
 }
 

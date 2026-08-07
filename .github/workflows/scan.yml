@@ -19,10 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install masscan
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq masscan
+          masscan --version | head -1
       - name: Run scan
         env:
           OLLAMA_API_URL: ${{ vars.OLLAMA_API_URL }}
           PROBE_TOKEN: ${{ secrets.PROBE_TOKEN }}
           SCAN_COUNT: ${{ github.event.inputs.count || '500' }}
           SCAN_CIDRS: ${{ github.event.inputs.cidrs || vars.SCAN_CIDRS }}
+          MASSCAN_RATE: ${{ vars.MASSCAN_RATE || '100000' }}
         run: node scripts/scan-remote.mjs

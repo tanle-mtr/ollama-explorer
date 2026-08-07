@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -30,7 +30,7 @@ export default function Home() {
   const [results, setResults] = useState<HostRecord[]>([]);
   const [models, setModels] = useState<ModelCount[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [took, setTook] = useState<number | null>(null);
   const [selected, setSelected] = useState<HostRecord | null>(null);
   const [showProbe, setShowProbe] = useState(false);
@@ -41,6 +41,19 @@ export default function Home() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
+
+  // 用 ref 存储最新值，避免 useCallback 依赖变化
+  const sortByRef = useRef(sortBy);
+  const sortOrderRef = useRef(sortOrder);
+  const selectedModelsRef = useRef(selectedModels);
+  const selectedVendorsRef = useRef(selectedVendors);
+  const modelsRef = useRef(models);
+
+  useEffect(() => { sortByRef.current = sortBy; }, [sortBy]);
+  useEffect(() => { sortOrderRef.current = sortOrder; }, [sortOrder]);
+  useEffect(() => { selectedModelsRef.current = selectedModels; }, [selectedModels]);
+  useEffect(() => { selectedVendorsRef.current = selectedVendors; }, [selectedVendors]);
+  useEffect(() => { modelsRef.current = models; }, [models]);
 
   // 计算当前选中的所有模型
   const computedAllSelectedModels = useMemo(() => {
@@ -60,9 +73,9 @@ export default function Home() {
         q: DEFAULT_QUERY,
         page: String(p),
         per: String(PER_PAGE),
-        ...(computedAllSelectedModels.length > 0 ? { model: computedAllSelectedModels.join(",") } : {}),
-        sortBy,
-        sortOrder,
+        sortBy: sortByRef.current,
+        sortOrder: sortOrderRef.current,
+        ...(selectedModelsRef.current.length > 0 ? { model: selectedModelsRef.current.join(",") } : {}),
       });
       const res = await fetch(`/api/search?${sp.toString()}`);
       const j = await res.json();
@@ -76,7 +89,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [computedAllSelectedModels, sortBy, sortOrder]);
+  }, []);
 
   const loadModels = useCallback(async () => {
     try {

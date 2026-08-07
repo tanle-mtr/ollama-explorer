@@ -24,9 +24,11 @@ import SyntaxPanel from "@/components/SyntaxPanel";
 const DEFAULT_QUERY = 'port="11434" && status_code="200"';
 const PER_PAGE = 20;
 
-// 辅助函数：固定小数位数
-function toFixed2(n: number): string {
-  return n.toFixed(2);
+// 辅助函数：格式化耗时
+function formatTook(ms: number): string {
+  if (ms < 10) return `<0.01`;
+  if (ms < 100) return `${(ms / 1000).toFixed(2)}`;
+  return `${(ms / 1000).toFixed(1)}`;
 }
 
 export default function Home() {
@@ -416,7 +418,7 @@ export default function Home() {
           <span>
             共 <span className="font-semibold text-slate-200">{total}</span>{" "}
             条结果
-            {took != null && <> · 耗时 {toFixed2(took / 1000)}s</>}
+            {took != null && <> · 耗时 {formatTook(took)}s</>}
           </span>
           <span className="flex items-center gap-3">
             <button

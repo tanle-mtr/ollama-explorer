@@ -32,4 +32,7 @@ jobs:
           SCAN_COUNT: ${{ github.event.inputs.count || '500' }}
           SCAN_CIDRS: ${{ github.event.inputs.cidrs || vars.SCAN_CIDRS }}
           MASSCAN_RATE: ${{ vars.MASSCAN_RATE || '100000' }}
-        run: node scripts/scan-remote.mjs
+        run: |
+          echo "Running scan with SCAN_COUNT=${SCAN_COUNT}, SCAN_CIDRS=${SCAN_CIDRS:-not set}"
+          node scripts/scan-remote.mjs
+          echo "Scan completed"

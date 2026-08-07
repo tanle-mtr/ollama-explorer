@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const filters = parseQuery(q);
   
   // Handle model filter (single or comma-separated)
-  if (modelParam) {
+  if (modelParam && typeof modelParam === "string") {
     const models = modelParam.split(",").map(m => m.trim()).filter(Boolean);
     filters.model = models.length === 1 ? models[0] : models;
   }

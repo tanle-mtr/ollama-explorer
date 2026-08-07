@@ -150,7 +150,7 @@ export default function Home() {
             {stats ? `${stats.models} 种模型` : "—"}
           </span>
           <span className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-0.5 text-emerald-400">
-            port="11434" && status_code="200"
+            port=&quot;11434&quot; &amp;&amp; status_code=&quot;200&quot;
           </span>
         </div>
 

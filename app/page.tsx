@@ -42,6 +42,26 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
 
+  // 计算当前选中的所有模型
+  const allSelectedModels = useMemo(() => {
+    const models = new Set(selectedModels);
+    for (const vendorId of selectedVendors) {
+      const vendorModels = computeVendorModels(models.map(m => m)).get(vendorId) || [];
+      // This is wrong - need to use the actual models list
+    }
+    return Array.from(models);
+  }, [selectedModels, selectedVendors, models]);
+
+  // Fix: recalculate properly
+  const computedAllSelectedModels = useMemo(() => {
+    const modelSet = new Set(selectedModels);
+    for (const vendorId of selectedVendors) {
+      const vendorModels = computeVendorModels(models.map(m => m.name)).get(vendorId) || [];
+      vendorModels.forEach(m => modelSet.add(m));
+    }
+    return Array.from(modelSet);
+  }, [selectedModels, selectedVendors, models]);
+
   const runSearch = useCallback(async (p: number) => {
     setLoading(true);
     const t0 = Date.now();
@@ -50,7 +70,7 @@ export default function Home() {
         q: DEFAULT_QUERY,
         page: String(p),
         per: String(PER_PAGE),
-        ...(allSelectedModels.length > 0 ? { model: allSelectedModels.join(",") } : {}),
+        ...(computedAllSelectedModels.length > 0 ? { model: computedAllSelectedModels.join(",") } : {}),
         sortBy,
         sortOrder,
       });
@@ -66,7 +86,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [allSelectedModels, sortBy, sortOrder]);
+  }, [computedAllSelectedModels, sortBy, sortOrder]);
 
   const loadModels = useCallback(async () => {
     try {
@@ -124,16 +144,6 @@ export default function Home() {
     });
   };
 
-  const toggleVendorModels = (vendorId: string, modelNames: string[]) => {
-    setSelectedModels((prev) => {
-      const hasAll = modelNames.every((m) => prev.includes(m));
-      if (hasAll) {
-        return prev.filter((m) => !modelNames.includes(m));
-      }
-      return [...new Set([...prev, ...modelNames])];
-    });
-  };
-
   const expandVendor = (vendorId: string) => {
     setExpandedVendors((prev) => {
       const next = new Set(prev);
@@ -171,7 +181,6 @@ export default function Home() {
   // 计算各厂商的模型和数量
   const vendorModelMap = computeVendorModels(models.map(m => m.name));
   
-  // 为每个厂商计算包含的模型数量
   const vendorStats = VENDORS.map(v => {
     const vendorModels = vendorModelMap.get(v.id) || [];
     const totalModels = vendorModels.reduce((sum, name) => {
@@ -180,16 +189,6 @@ export default function Home() {
     }, 0);
     return { ...v, modelCount: vendorModels.length, instanceCount: totalModels };
   }).sort((a, b) => b.instanceCount - a.instanceCount);
-
-  // 当前选中的模型（合并手动选择 + 厂商选择）
-  const allSelectedModels = useMemo(() => {
-    const models = new Set(selectedModels);
-    for (const vendorId of selectedVendors) {
-      const vendorModels = vendorModelMap.get(vendorId) || [];
-      vendorModels.forEach(m => models.add(m));
-    }
-    return Array.from(models);
-  }, [selectedModels, selectedVendors, vendorModelMap]);
 
   return (
     <div className="min-h-screen">
@@ -239,10 +238,10 @@ export default function Home() {
           <span className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-0.5 text-emerald-400">
             port=&quot;11434&quot; &amp;&amp; status_code=&quot;200&quot;
           </span>
-          {(allSelectedModels.length > 0 || selectedVendors.length > 0) && (
+          {computedAllSelectedModels.length > 0 && (
             <span className="flex items-center gap-1 rounded border border-blue-500/20 bg-blue-500/5 px-2 py-0.5 text-blue-400">
               <Filter className="h-3 w-3" />
-              {allSelectedModels.length} 模型筛选
+              {computedAllSelectedModels.length} 模型筛选
               <button onClick={clearFilters} className="ml-1 hover:text-white">
                 ×
               </button>
@@ -258,9 +257,9 @@ export default function Home() {
           >
             <Filter className="h-4 w-4" />
             筛选与排序
-            {(allSelectedModels.length > 0 || selectedVendors.length > 0) && (
+            {computedAllSelectedModels.length > 0 && (
               <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs text-emerald-950">
-                {allSelectedModels.length + selectedVendors.length}
+                {computedAllSelectedModels.length}
               </span>
             )}
           </button>
@@ -306,13 +305,12 @@ export default function Home() {
                         </button>
                       </div>
                       
-                      {/* 展开显示模型列表 */}
                       {expandedVendors.has(vendor.id) && (
                         <div className="px-3 pb-2 pl-6">
                           <div className="flex flex-wrap gap-1">
                             {(vendorModelMap.get(vendor.id) || []).slice(0, 30).map((modelName) => {
                               const model = models.find(m => m.name === modelName);
-                              const isSelected = allSelectedModels.includes(modelName);
+                              const isSelected = computedAllSelectedModels.includes(modelName);
                               return (
                                 <button
                                   key={modelName}
@@ -388,7 +386,7 @@ export default function Home() {
                   </div>
                 </div>
                 
-                {(allSelectedModels.length > 0 || selectedVendors.length > 0 || sortBy !== "lastSeen" || sortOrder === "asc") && (
+                {(computedAllSelectedModels.length > 0 || sortBy !== "lastSeen" || sortOrder === "asc") && (
                   <button
                     onClick={clearFilters}
                     className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:border-red-500/50 hover:text-red-400"

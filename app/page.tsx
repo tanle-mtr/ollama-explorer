@@ -91,6 +91,11 @@ export default function Home() {
     }
   }, []);
 
+  // 当 sortBy/sortOrder/selectedModels 变化时，自动重新搜索
+  useEffect(() => {
+    runSearch(1);
+  }, [sortBy, sortOrder, selectedModels.length]);
+
   const loadModels = useCallback(async () => {
     try {
       const res = await fetch("/api/models");
@@ -112,10 +117,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    runSearch(1);
     loadModels();
     loadStats();
-  }, [runSearch, loadModels, loadStats]);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

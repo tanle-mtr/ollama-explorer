@@ -2,24 +2,35 @@ import requests, time
 
 base = 'https://ollama-explorer.tanle.cc.cd'
 
-# Test order stability after fix
-print("Testing order stability after fix...")
+print("Test 1: Basic search (no sort param)")
 results = []
-for i in range(5):
-    r = requests.get(f'{base}/api/search', params={
-        'q': 'port="11434" && status_code="200"',
-        'per': 5
-    })
+for i in range(10):
+    r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 20})
     d = r.json()
     ips = [x['ip'] for x in d['results']]
     results.append(ips)
     print(f'Call {i+1}: {ips}')
     time.sleep(0.3)
+print(f'All consistent: {all(r == results[0] for r in results)}')
 
-# Check if all are the same
-all_same = all(r == results[0] for r in results)
-print(f'\nAll calls consistent: {all_same}')
-if not all_same:
-    print('WARNING: Order still changing!')
-else:
-    print('SUCCESS: Order is now stable!')
+print("\nTest 2: Sort by lastSeen desc")
+results = []
+for i in range(10):
+    r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 20, 'sortBy': 'lastSeen', 'sortOrder': 'desc'})
+    d = r.json()
+    ips = [x['ip'] for x in d['results']]
+    results.append(ips)
+    print(f'Call {i+1}: {ips}')
+    time.sleep(0.3)
+print(f'All consistent: {all(r == results[0] for r in results)}')
+
+print("\nTest 3: Sort by ip asc")
+results = []
+for i in range(10):
+    r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 20, 'sortBy': 'ip', 'sortOrder': 'asc'})
+    d = r.json()
+    ips = [x['ip'] for x in d['results']]
+    results.append(ips)
+    print(f'Call {i+1}: {ips}')
+    time.sleep(0.3)
+print(f'All consistent: {all(r == results[0] for r in results)}')

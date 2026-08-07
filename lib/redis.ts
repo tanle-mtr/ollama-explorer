@@ -9,17 +9,22 @@ interface RedisResponse {
 }
 
 async function request(body: unknown, path = ""): Promise<RedisResponse[]> {
-  const res = await fetch(`${REST_URL}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${REST_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`Upstash Redis 请求失败: ${res.status}`);
-  return (await res.json()) as RedisResponse[];
+  try {
+    const res = await fetch(`${REST_URL}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${REST_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`Upstash Redis 请求失败: ${res.status}`);
+    return (await res.json()) as RedisResponse[];
+  } catch (e) {
+    console.error("[Redis] request error:", e);
+    return [];
+  }
 }
 
 export async function redisCommand(cmd: string, args: string[]): Promise<unknown> {

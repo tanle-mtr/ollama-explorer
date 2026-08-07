@@ -42,7 +42,7 @@ export default function SyntaxPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="mb-3 rounded-lg bg-slate-900/60 p-3 font-mono text-xs text-emerald-400">
-          port="11434" && status_code="200"
+          port=&quot;11434&quot; &amp;&amp; status_code=&quot;200&quot;
         </div>
         <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-800">
           <table className="w-full text-left text-xs">

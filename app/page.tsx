@@ -24,6 +24,11 @@ import SyntaxPanel from "@/components/SyntaxPanel";
 const DEFAULT_QUERY = 'port="11434" && status_code="200"';
 const PER_PAGE = 20;
 
+// 辅助函数：固定小数位数
+function toFixed2(n: number): string {
+  return n.toFixed(2);
+}
+
 export default function Home() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -67,7 +72,6 @@ export default function Home() {
 
   const runSearch = useCallback(async (p: number) => {
     setLoading(true);
-    const t0 = Date.now();
     try {
       const sp = new URLSearchParams({
         q: DEFAULT_QUERY,
@@ -82,7 +86,8 @@ export default function Home() {
       setResults(j.results ?? []);
       setTotal(j.size ?? 0);
       setPage(j.page ?? 1);
-      setTook(Date.now() - t0);
+      // 使用 API 返回的 took 值，更准确
+      setTook(j.took ?? null);
     } catch {
       setResults([]);
       setTotal(0);
@@ -411,7 +416,7 @@ export default function Home() {
           <span>
             共 <span className="font-semibold text-slate-200">{total}</span>{" "}
             条结果
-            {took != null && <> · 耗时 {(took / 1000).toFixed(2)}s</>}
+            {took != null && <> · 耗时 {toFixed2(took / 1000)}s</>}
           </span>
           <span className="flex items-center gap-3">
             <button

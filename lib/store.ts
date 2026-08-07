@@ -14,7 +14,6 @@ const MODELS_PREFIX = "ollama:models:";
 const NAMES_KEY = "ollama:modelnames";
 const PORT_PREFIX = "ollama:port:";
 const STATUS_PREFIX = "ollama:status:";
-const LASTSEEN_KEY = "ollama:z:lastseen";
 const CACHE_PREFIX = "ollama:cache:";
 const TTL = 90 * 24 * 3600;
 const CACHE_TTL = 60;
@@ -35,89 +34,120 @@ export interface OllamaStore {
 
 class RedisStore implements OllamaStore {
   async upsertHost(r: HostRecord): Promise<void> {
-    const cmds: Array<{ cmd: string; args: string[] }> = [
-      { cmd: "SET", args: [HOST_PREFIX + r.ip, JSON.stringify(r), "EX", String(TTL)] },
-      { cmd: "SADD", args: [ALL_KEY, r.ip] },
-      { cmd: "EXPIRE", args: [ALL_KEY, String(TTL)] },
-      { cmd: "SADD", args: [NAMES_KEY, ...r.models] },
-      { cmd: "EXPIRE", args: [NAMES_KEY, String(TTL)] },
-      { cmd: "SADD", args: [PORT_PREFIX + r.port, r.ip] },
-      { cmd: "EXPIRE", args: [PORT_PREFIX + r.port, String(TTL)] },
-      { cmd: "SADD", args: [STATUS_PREFIX + r.statusCode, r.ip] },
-      { cmd: "EXPIRE", args: [STATUS_PREFIX + r.statusCode, String(TTL)] },
-      { cmd: "ZADD", args: [LASTSEEN_KEY, String(r.lastSeen), r.ip] },
-      { cmd: "EXPIRE", args: [LASTSEEN_KEY, String(TTL)] },
-      ...r.models.map((m) => ({
-        cmd: "SADD",
-        args: [`${MODELS_PREFIX}${m}`, r.ip],
-      })),
-      ...r.models.map((m) => ({
-        cmd: "EXPIRE",
-        args: [`${MODELS_PREFIX}${m}`, String(TTL)],
-      })),
-    ];
-    await redisPipeline(cmds);
+    try {
+      const cmds: Array<{ cmd: string; args: string[] }> = [
+        { cmd: "SET", args: [HOST_PREFIX + r.ip, JSON.stringify(r), "EX", String(TTL)] },
+        { cmd: "SADD", args: [ALL_KEY, r.ip] },
+        { cmd: "EXPIRE", args: [ALL_KEY, String(TTL)] },
+        { cmd: "SADD", args: [NAMES_KEY, ...r.models] },
+        { cmd: "EXPIRE", args: [NAMES_KEY, String(TTL)] },
+        { cmd: "SADD", args: [PORT_PREFIX + r.port, r.ip] },
+        { cmd: "EXPIRE", args: [PORT_PREFIX + r.port, String(TTL)] },
+        { cmd: "SADD", args: [STATUS_PREFIX + r.statusCode, r.ip] },
+        { cmd: "EXPIRE", args: [STATUS_PREFIX + r.statusCode, String(TTL)] },
+        ...r.models.map((m) => ({
+          cmd: "SADD",
+          args: [`${MODELS_PREFIX}${m}`, r.ip],
+        })),
+        ...r.models.map((m) => ({
+          cmd: "EXPIRE",
+          args: [`${MODELS_PREFIX}${m}`, String(TTL)],
+        })),
+      ];
+      await redisPipeline(cmds);
+    } catch (e) {
+      console.error("[Store] upsertHost error:", e);
+    }
   }
 
   private async smembers(key: string): Promise<string[]> {
-    const r = await redisCommand("SMEMBERS", [key]);
-    return Array.isArray(r) ? (r as string[]) : [];
+    try {
+      const r = await redisCommand("SMEMBERS", [key]);
+      return Array.isArray(r) ? (r as string[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   private async sunion(keys: string[]): Promise<string[]> {
-    const r = await redisCommand("SUNION", keys);
-    return Array.isArray(r) ? (r as string[]) : [];
+    try {
+      const r = await redisCommand("SUNION", keys);
+      return Array.isArray(r) ? (r as string[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   private async sinter(keys: string[]): Promise<string[]> {
     if (!keys.length) return [];
-    const r = await redisCommand("SINTER", keys);
-    return Array.isArray(r) ? (r as string[]) : [];
+    try {
+      const r = await redisCommand("SINTER", keys);
+      return Array.isArray(r) ? (r as string[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   async getHosts(ips: string[]): Promise<HostRecord[]> {
     if (!ips.length) return [];
-    const raw = await redisPipeline(
-      ips.map((ip) => ({ cmd: "GET", args: [HOST_PREFIX + ip] }))
-    );
-    const hosts: HostRecord[] = [];
-    for (let i = 0; i < raw.length; i++) {
-      if (typeof raw[i] === "string") {
-        try {
-          hosts.push(JSON.parse(raw[i] as string));
-        } catch {
-          // 忽略损坏记录
+    try {
+      const raw = await redisPipeline(
+        ips.map((ip) => ({ cmd: "GET", args: [HOST_PREFIX + ip] }))
+      );
+      const hosts: HostRecord[] = [];
+      for (let i = 0; i < raw.length; i++) {
+        if (typeof raw[i] === "string") {
+          try {
+            hosts.push(JSON.parse(raw[i] as string));
+          } catch {
+            // 忽略损坏记录
+          }
         }
       }
+      return hosts;
+    } catch (e) {
+      console.error("[Store] getHosts error:", e);
+      return [];
     }
-    return hosts;
   }
 
   async modelNames(): Promise<string[]> {
-    return this.smembers(NAMES_KEY);
+    try {
+      return await this.smembers(NAMES_KEY);
+    } catch {
+      return [];
+    }
   }
 
   async modelCounts(names: string[]): Promise<Record<string, number>> {
     if (!names.length) return {};
-    const raw = await redisPipeline(
-      names.map((n) => ({ cmd: "SCARD", args: [MODELS_PREFIX + n] }))
-    );
-    const out: Record<string, number> = {};
-    names.forEach((n, i) => {
-      if (typeof raw[i] === "number") out[n] = raw[i] as number;
-    });
-    return out;
+    try {
+      const raw = await redisPipeline(
+        names.map((n) => ({ cmd: "SCARD", args: [MODELS_PREFIX + n] }))
+      );
+      const out: Record<string, number> = {};
+      names.forEach((n, i) => {
+        if (typeof raw[i] === "number") out[n] = raw[i] as number;
+      });
+      return out;
+    } catch {
+      return {};
+    }
   }
 
   async stats(): Promise<Stats> {
-    const raw = await redisPipeline([
-      { cmd: "SCARD", args: [ALL_KEY] },
-      { cmd: "SCARD", args: [NAMES_KEY] },
-    ]);
-    return {
-      hosts: typeof raw[0] === "number" ? (raw[0] as number) : 0,
-      models: typeof raw[1] === "number" ? (raw[1] as number) : 0,
-    };
+    try {
+      const raw = await redisPipeline([
+        { cmd: "SCARD", args: [ALL_KEY] },
+        { cmd: "SCARD", args: [NAMES_KEY] },
+      ]);
+      return {
+        hosts: typeof raw[0] === "number" ? (raw[0] as number) : 0,
+        models: typeof raw[1] === "number" ? (raw[1] as number) : 0,
+      };
+    } catch {
+      return { hosts: 0, models: 0 };
+    }
   }
 
   async search(
@@ -193,20 +223,6 @@ class RedisStore implements OllamaStore {
       console.error("[Store] search error:", e);
       return { total: 0, results: [] };
     }
-  }
-      } else if (sortBy === "ip") {
-        return multiplier * a.ip.localeCompare(b.ip);
-      }
-      return multiplier * (b.lastSeen - a.lastSeen);
-    });
-    
-    const total = filtered.length;
-    const result: SearchResult = {
-      total,
-      results: filtered.slice((page - 1) * per, page * per),
-    };
-    await this.cacheSet(cacheKey, result);
-    return result;
   }
 
   private async cacheGet(key: string): Promise<SearchResult | null> {

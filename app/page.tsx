@@ -50,7 +50,7 @@ export default function Home() {
         q: DEFAULT_QUERY,
         page: String(p),
         per: String(PER_PAGE),
-        ...(selectedModels.length > 0 ? { model: selectedModels.join(",") } : {}),
+        ...(allSelectedModels.length > 0 ? { model: allSelectedModels.join(",") } : {}),
         sortBy,
         sortOrder,
       });
@@ -66,7 +66,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [selectedModels, selectedVendors, sortBy, sortOrder]);
+  }, [allSelectedModels, sortBy, sortOrder]);
 
   const loadModels = useCallback(async () => {
     try {

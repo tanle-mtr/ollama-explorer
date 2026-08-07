@@ -125,58 +125,75 @@ class RedisStore implements OllamaStore {
     page: number,
     per: number
   ): Promise<SearchResult> {
-    const cacheKey = stableKey(filters, page, per);
-    const cached = await this.cacheGet(cacheKey);
-    if (cached) return cached;
+    try {
+      const cacheKey = stableKey(filters, page, per);
+      const cached = await this.cacheGet(cacheKey);
+      if (cached) return cached;
 
-    let ips: string[] | null = null;
-    const intersectKeys: string[] = [];
-    if (filters.port) intersectKeys.push(PORT_PREFIX + String(filters.port));
-    if (filters.statusCode)
-      intersectKeys.push(STATUS_PREFIX + String(filters.statusCode));
+      let ips: string[] | null = null;
+      const intersectKeys: string[] = [];
+      if (filters.port) intersectKeys.push(PORT_PREFIX + String(filters.port));
+      if (filters.statusCode)
+        intersectKeys.push(STATUS_PREFIX + String(filters.statusCode));
 
-    if (filters.model) {
-      const modelList = Array.isArray(filters.model) ? filters.model : [filters.model];
-      const allModelIps: string[] = [];
-      
-      for (const model of modelList) {
-        const term = normModel(model);
-        const names = await this.modelNames();
-        const matched = names.filter((n) => matchesModelTerm(n, term));
-        if (!matched.length) continue;
-        const modelIps =
-          matched.length === 1
-            ? await this.smembers(MODELS_PREFIX + matched[0])
-            : await this.sunion(matched.map((n) => MODELS_PREFIX + n));
-        allModelIps.push(...modelIps);
+      if (filters.model) {
+        const modelList = Array.isArray(filters.model) ? filters.model : [filters.model];
+        const allModelIps: string[] = [];
+        
+        for (const model of modelList) {
+          const term = normModel(model);
+          const names = await this.modelNames();
+          const matched = names.filter((n) => matchesModelTerm(n, term));
+          if (!matched.length) continue;
+          const modelIps =
+            matched.length === 1
+              ? await this.smembers(MODELS_PREFIX + matched[0])
+              : await this.sunion(matched.map((n) => MODELS_PREFIX + n));
+          allModelIps.push(...modelIps);
+        }
+        
+        const uniqueModelIps = [...new Set(allModelIps)];
+        
+        if (intersectKeys.length) {
+          const byOther = await this.sinter(intersectKeys);
+          const byOtherSet = new Set(byOther);
+          ips = uniqueModelIps.filter((ip) => byOtherSet.has(ip));
+        } else {
+          ips = uniqueModelIps;
+        }
+      } else if (intersectKeys.length) {
+        ips = await this.sinter(intersectKeys);
       }
+      if (!ips || ips.length === 0) ips = await this.smembers(ALL_KEY);
+
+      const hosts = (await this.getHosts(ips)).filter((h) => h && h.ip);
+      const filtered = hosts.filter((h) => matchHost(h, filters));
       
-      // Deduplicate
-      const uniqueModelIps = [...new Set(allModelIps)];
+      const sortBy = (filters as any).sortBy || "lastSeen";
+      const sortOrder = (filters as any).sortOrder || "desc";
+      const multiplier = sortOrder === "asc" ? 1 : -1;
       
-      if (intersectKeys.length) {
-        const byOther = await this.sinter(intersectKeys);
-        const byOtherSet = new Set(byOther);
-        ips = uniqueModelIps.filter((ip) => byOtherSet.has(ip));
-      } else {
-        ips = uniqueModelIps;
-      }
-    } else if (intersectKeys.length) {
-      ips = await this.sinter(intersectKeys);
+      filtered.sort((a, b) => {
+        if (sortBy === "tookMs") {
+          return multiplier * ((a.tookMs ?? 0) - (b.tookMs ?? 0));
+        } else if (sortBy === "ip") {
+          return multiplier * a.ip.localeCompare(b.ip);
+        }
+        return multiplier * (b.lastSeen - a.lastSeen);
+      });
+      
+      const total = filtered.length;
+      const result: SearchResult = {
+        total,
+        results: filtered.slice((page - 1) * per, page * per),
+      };
+      await this.cacheSet(cacheKey, result);
+      return result;
+    } catch (e) {
+      console.error("[Store] search error:", e);
+      return { total: 0, results: [] };
     }
-    if (!ips || ips.length === 0) ips = await this.smembers(ALL_KEY);
-
-    const hosts = (await this.getHosts(ips)).filter((h) => h && h.ip);
-    const filtered = hosts.filter((h) => matchHost(h, filters));
-    
-    // Apply sorting
-    const sortBy = (filters as any).sortBy || "lastSeen";
-    const sortOrder = (filters as any).sortOrder || "desc";
-    const multiplier = sortOrder === "asc" ? 1 : -1;
-    
-    filtered.sort((a, b) => {
-      if (sortBy === "tookMs") {
-        return multiplier * ((a.tookMs ?? 0) - (b.tookMs ?? 0));
+  }
       } else if (sortBy === "ip") {
         return multiplier * a.ip.localeCompare(b.ip);
       }

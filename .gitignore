@@ -6,3 +6,6 @@ out
 !.env.example
 .DS_Store
 data
+
+.vercel
+.env*

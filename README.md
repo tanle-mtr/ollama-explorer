@@ -19,7 +19,7 @@
 ## 工作原理
 
 ```
-持续探测（社区提交 IP / GitHub Actions 定时扫描 / FOFA API 导入）
+持续探测（社区提交 IP / 自研 GitHub Actions 扫描器批量扫描公网 11434 端口）
         │  对 host:11434 发起 /api/tags、/api/version 请求
         ▼
 指纹化：IP + 端口 + 协议 + 状态码 + 版本 + 模型列表 + 归属信息
@@ -59,27 +59,20 @@ npm run dev
 | --- | --- | --- |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | 部署时建议 | 链接 Vercel KV 后自动注入 |
 | `GEOIP_TOKEN` | 可选 | ipinfo.io token（不配也能用，免费额度即可） |
-| `FOFA_EMAIL` / `FOFA_KEY` | 可选 | FOFA API 凭据，用于批量导入 `port="11434"` 资产 |
 | `PROBE_TOKEN` | 可选 | 保护 `/api/probe`，未配置则任何访客都可探测 |
 
-## 给数据库注入初始数据（三种方式）
+## 给数据库注入初始数据（自研扫描，无需第三方 API）
 
-**推荐先用 FOFA API 导入一批真实资产**（需要 fofa.info 账户的 email + key）：
-
-```bash
-curl -X POST https://你的域名/api/import-fofa \
-  -H "Content-Type: application/json" \
-  -d '{"query": "port=\"11434\" && status_code=\"200\"", "size": 100}'
-```
-
-或者直接在页面上用「探测 IP」输入已知的 Ollama 服务器地址。
-或者开启 GitHub Actions 定时扫描：
+**方式一：GitHub Actions 定时扫描（自研 FOFA 引擎）**
 
 1. 在仓库 Settings → Actions secrets 中添加 `PROBE_TOKEN`（与部署环境变量一致）；
 2. 在 Actions variables 中添加 `OLLAMA_API_URL`（你的 Vercel 域名，如
-   `https://ollama-fofa.vercel.app`）；
-3. 推送 `.github/workflows/scan.yml`，每天自动探测一批随机公网 IP（也可在
-   Workflow 中手动触发并设置数量）。
+   `https://ollama-explorer.vercel.app`）；
+3. 推送 `.github/workflows/scan.yml`，扫描器随机扫一批公网 IP 的 11434 端口，
+   命中即写库（也可在 Workflow 中手动触发并设置数量）。
+
+**方式二：页面「探测 IP」** 直接输入已知的 Ollama 服务器地址生成（
+经 `/api/probe` 探测后写入 KV 共享库）。
 
 ## FOFA 语法支持
 
@@ -109,8 +102,7 @@ ollama-explorer/
 │       ├── search/route.ts         # GET 类 SQL 检索
 │       ├── probe/route.ts          # POST 主动探测并入库
 │       ├── models/route.ts         # GET 模型列表与实例数
-│       ├── stats/route.ts          # GET 统计
-│       └── import-fofa/route.ts    # POST 从 FOFA API 导入资产
+│       └── stats/route.ts          # GET 统计
 ├── components/                     # 模型筛选、探测面板、实例详情、语法说明
 ├── lib/
 │   ├── ollama.ts                   # 探测逻辑（/api/tags、/api/version）

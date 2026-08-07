@@ -265,7 +265,7 @@ export default function Home() {
 
       {selected && (
         <HostModal
-          record={selected}
+          host={selected}
           onReprobe={onReprobe}
           onClose={() => setSelected(null)}
         />

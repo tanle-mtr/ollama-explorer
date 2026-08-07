@@ -23,7 +23,7 @@ async function request(body: unknown, path = ""): Promise<RedisResponse[]> {
 }
 
 export async function redisCommand(cmd: string, args: string[]): Promise<unknown> {
-  const [r] = await request({ cmd, args });
+  const r = (await request([cmd, ...args])) as RedisResponse;
   if (r.error) throw new Error(`Redis 错误: ${r.error}`);
   return r.result;
 }
@@ -31,7 +31,10 @@ export async function redisCommand(cmd: string, args: string[]): Promise<unknown
 export async function redisPipeline(
   commands: Array<{ cmd: string; args: string[] }>
 ): Promise<unknown[]> {
-  const res = await request(commands, "/pipeline");
+  const res = (await request(
+    commands.map((c) => [c.cmd, ...c.args]),
+    "/pipeline"
+  )) as RedisResponse[];
   return res.map((r) => {
     if (r.error) throw new Error(`Redis 错误: ${r.error}`);
     return r.result;

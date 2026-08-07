@@ -1,14 +1,44 @@
 import { getStore } from "@/lib/store";
 import { lookupGeo } from "@/lib/geo";
 import type { HostRecord, ModelInfo, ProbeItem } from "@/lib/types";
+import net from "node:net";
 
 const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+function tcpCheck(host: string, port: number, timeoutMs = 1500): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      try {
+        sock.destroy();
+      } catch {
+        // 忽略销毁错误
+      }
+      resolve(ok);
+    };
+    const sock = net.connect({ host, port, timeout: timeoutMs });
+    sock.once("connect", () => finish(true));
+    sock.once("timeout", () => finish(false));
+    sock.once("error", () => finish(false));
+  });
+}
 
 export async function probeHost(
   host: string,
   port = 11434
 ): Promise<ProbeItem> {
   const started = Date.now();
+  if (!(await tcpCheck(host, port))) {
+    return {
+      ip: host,
+      port,
+      reachable: false,
+      error: "unreachable",
+      tookMs: Date.now() - started,
+    };
+  }
   for (const scheme of ["http", "https"] as const) {
     try {
       const tagsRes = await fetch(

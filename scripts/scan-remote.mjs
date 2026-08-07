@@ -57,7 +57,7 @@ function randomPublicIp() {
   return `${a}.${b}.${c}.${d}`;
 }
 
-let targets: string[] = [];
+let targets = [];
 
 if (haveMasscan && CIDRS.length) {
   const rangeArgs = CIDRS.join(" ");

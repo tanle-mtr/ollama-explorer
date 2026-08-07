@@ -63,7 +63,9 @@ class RedisStore implements OllamaStore {
   private async smembers(key: string): Promise<string[]> {
     try {
       const r = await redisCommand("SMEMBERS", [key]);
-      return Array.isArray(r) ? (r as string[]) : [];
+      const result = Array.isArray(r) ? (r as string[]) : [];
+      // 排序确保顺序稳定，避免前端显示闪烁
+      return result.sort();
     } catch {
       return [];
     }

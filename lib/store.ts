@@ -207,7 +207,10 @@ class RedisStore implements OllamaStore {
       
       filtered.sort((a, b) => {
         if (sortBy === "tookMs") {
-          return multiplier * ((a.tookMs ?? 0) - (b.tookMs ?? 0));
+          // tookMs 可能为空，使用 lastSeen 作为备用
+          const aTook = a.tookMs ?? a.lastSeen;
+          const bTook = b.tookMs ?? b.lastSeen;
+          return multiplier * (aTook - bTook);
         } else if (sortBy === "ip") {
           return multiplier * a.ip.localeCompare(b.ip);
         }

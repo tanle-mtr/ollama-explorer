@@ -505,11 +505,7 @@ export default function Home() {
                         {h.country ? `${h.country}` : "—"}
                       </td>
                       <td className="px-3 py-2.5">
-                        <span className={`font-mono ${
-                          (h.tookMs ?? 0) < 1000 ? "text-emerald-400" :
-                          (h.tookMs ?? 0) < 3000 ? "text-yellow-400" :
-                          "text-red-400"
-                        }`}>
+                        <span className="font-mono text-slate-400">
                           {h.tookMs ? `${(h.tookMs / 1000).toFixed(1)}s` : "—"}
                         </span>
                       </td>

@@ -21,6 +21,7 @@ export interface HostRecord {
   asn?: string;
   firstSeen: number;
   lastSeen: number;
+  tookMs?: number;
 }
 
 export interface ModelCount {
@@ -32,13 +33,15 @@ export interface SearchFilters {
   ip?: string;
   port?: number;
   statusCode?: number;
-  model?: string;
+  model?: string | string[];
   title?: string;
   version?: string;
   country?: string;
   hostname?: string;
   server?: string;
   q?: string;
+  sortBy?: "lastSeen" | "tookMs" | "ip";
+  sortOrder?: "asc" | "desc";
 }
 
 export interface SearchResult {

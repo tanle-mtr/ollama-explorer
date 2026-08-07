@@ -136,29 +136,53 @@ class RedisStore implements OllamaStore {
       intersectKeys.push(STATUS_PREFIX + String(filters.statusCode));
 
     if (filters.model) {
-      const term = normModel(filters.model);
-      const names = await this.modelNames();
-      const matched = names.filter((n) => matchesModelTerm(n, term));
-      if (!matched.length) return { total: 0, results: [] };
-      const modelIps =
-        matched.length === 1
-          ? await this.smembers(MODELS_PREFIX + matched[0])
-          : await this.sunion(matched.map((n) => MODELS_PREFIX + n));
+      const modelList = Array.isArray(filters.model) ? filters.model : [filters.model];
+      const allModelIps: string[] = [];
+      
+      for (const model of modelList) {
+        const term = normModel(model);
+        const names = await this.modelNames();
+        const matched = names.filter((n) => matchesModelTerm(n, term));
+        if (!matched.length) continue;
+        const modelIps =
+          matched.length === 1
+            ? await this.smembers(MODELS_PREFIX + matched[0])
+            : await this.sunion(matched.map((n) => MODELS_PREFIX + n));
+        allModelIps.push(...modelIps);
+      }
+      
+      // Deduplicate
+      const uniqueModelIps = [...new Set(allModelIps)];
+      
       if (intersectKeys.length) {
         const byOther = await this.sinter(intersectKeys);
         const byOtherSet = new Set(byOther);
-        ips = modelIps.filter((ip) => byOtherSet.has(ip));
+        ips = uniqueModelIps.filter((ip) => byOtherSet.has(ip));
       } else {
-        ips = modelIps;
+        ips = uniqueModelIps;
       }
     } else if (intersectKeys.length) {
       ips = await this.sinter(intersectKeys);
     }
-    if (!ips) ips = await this.smembers(ALL_KEY);
+    if (!ips || ips.length === 0) ips = await this.smembers(ALL_KEY);
 
     const hosts = (await this.getHosts(ips)).filter((h) => h && h.ip);
     const filtered = hosts.filter((h) => matchHost(h, filters));
-    filtered.sort((a, b) => b.lastSeen - a.lastSeen);
+    
+    // Apply sorting
+    const sortBy = (filters as any).sortBy || "lastSeen";
+    const sortOrder = (filters as any).sortOrder || "desc";
+    const multiplier = sortOrder === "asc" ? 1 : -1;
+    
+    filtered.sort((a, b) => {
+      if (sortBy === "tookMs") {
+        return multiplier * ((a.tookMs ?? 0) - (b.tookMs ?? 0));
+      } else if (sortBy === "ip") {
+        return multiplier * a.ip.localeCompare(b.ip);
+      }
+      return multiplier * (b.lastSeen - a.lastSeen);
+    });
+    
     const total = filtered.length;
     const result: SearchResult = {
       total,

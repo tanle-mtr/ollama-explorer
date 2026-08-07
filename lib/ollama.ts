@@ -141,6 +141,7 @@ export async function probeAndStore(
     asn: geo.asn,
     firstSeen: existing?.firstSeen ?? Date.now(),
     lastSeen: Date.now(),
+    tookMs: probe.tookMs,
   };
   await store.upsertHost(record);
   return { ...probe, record };

@@ -101,7 +101,11 @@ export function matchHost(h: HostRecord, f: SearchFilters): boolean {
   if (f.port && h.port !== f.port) return false;
   if (f.statusCode && h.statusCode !== f.statusCode) return false;
   const model = f.model;
-  if (model && !h.models.some((m) => matchesModelTerm(m, model))) return false;
+  if (model) {
+    const modelList = Array.isArray(model) ? model : [model];
+    const hasMatch = modelList.some(m => h.models.some((hm) => matchesModelTerm(hm, m)));
+    if (!hasMatch) return false;
+  }
   if (
     f.title &&
     !`${h.title ?? ""} ${h.server ?? ""}`

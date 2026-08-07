@@ -89,6 +89,7 @@ if (!targets.length) {
   process.exit(0);
 }
 
+console.log(`[scan] scanning ${targets.length} targets...`);
 let found = 0;
 let ok = 0;
 
@@ -113,6 +114,9 @@ for (let i = 0; i < targets.length; i += BATCH) {
       );
     }
     ok++;
+    if (i % 100 === 0) {
+      console.log(`[scan] progress: ${i}/${targets.length} (${found} found)`);
+    }
   } catch (e) {
     console.error(`[scan] batch ${i} failed: ${e.message}`);
   }

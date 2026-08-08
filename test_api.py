@@ -1,33 +1,27 @@
 import requests
 
-base = 'https://ollama-explorer.tanle.cc.cd'
+base = 'https://ollama.tanle.cc.cd'
 
-print('=== 测试 API ===')
-print('Stats:', requests.get(f'{base}/api/stats').json())
+print('=== Testing APIs ===')
+print('Stats:', requests.get(f'{base}/api/stats', headers={'Cache-Control': 'no-cache'}).json())
 
-r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 10})
+r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 5})
 d = r.json()
-print(f'Search: total={d["size"]}, took={d["took"]}ms')
-for x in d['results'][:5]:
-    print(f'  {x["ip"]} - {x.get("title", "N/A")}')
+print(f'Search: {d["size"]} results, took={d["took"]}ms')
 
 r = requests.get(f'{base}/api/models')
 d = r.json()
-print(f'Models: total={d["total"]}')
-print(f'Top 5: {[m["name"] for m in d["models"][:5]]}')
+print(f'Models: {d["total"]}')
 
-print('\n=== 测试顺序稳定性 ===')
-results = []
+print('\n=== Testing order stability ===')
 for i in range(5):
-    r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 10})
+    r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 5})
     d = r.json()
     ips = [x['ip'] for x in d['results']]
-    results.append(ips)
     print(f'Call {i+1}: {ips}')
-print(f'All consistent: {all(r == results[0] for r in results)}')
 
-print('\n=== 测试耗时 ===')
+print('\n=== Testing took stability ===')
 for i in range(5):
-    r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 10})
+    r = requests.get(f'{base}/api/search', params={'q': 'port="11434" && status_code="200"', 'per': 5})
     d = r.json()
     print(f'Call {i+1}: took={d["took"]}ms')

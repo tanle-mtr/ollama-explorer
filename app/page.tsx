@@ -126,6 +126,7 @@ export default function Home() {
   useEffect(() => {
     loadModels();
     loadStats();
+    runSearch(1);
   }, []);
 
   useEffect(() => {

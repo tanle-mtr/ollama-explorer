@@ -2,13 +2,14 @@ name: ollama-scan
 
 on:
   schedule:
-    - cron: "30 3 * * *"
+    # 每 12 小时运行一次 (UTC 0:30 和 12:30)
+    - cron: "30 0,12 * * *"
   workflow_dispatch:
     inputs:
       count:
         description: "随机探测的 IP 数量"
         required: false
-        default: "500"
+        default: "1000"
       cidrs:
         description: "定向网段，空格分隔（如 103.21.140.0/24 5.188.0.0/16）"
         required: false
@@ -17,7 +18,7 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install masscan
@@ -29,9 +30,9 @@ jobs:
         env:
           OLLAMA_API_URL: ${{ vars.OLLAMA_API_URL }}
           PROBE_TOKEN: ${{ secrets.PROBE_TOKEN }}
-          SCAN_COUNT: ${{ github.event.inputs.count || '500' }}
+          SCAN_COUNT: ${{ github.event.inputs.count || '1000' }}
           SCAN_CIDRS: ${{ github.event.inputs.cidrs || vars.SCAN_CIDRS }}
-          MASSCAN_RATE: ${{ vars.MASSCAN_RATE || '100000' }}
+          MASSCAN_RATE: ${{ vars.MASSCAN_RATE || '200000' }}
         run: |
           echo "Running scan with SCAN_COUNT=${SCAN_COUNT}, SCAN_CIDRS=${SCAN_CIDRS:-not set}"
           node scripts/scan-remote.mjs

@@ -60,13 +60,12 @@ function randomPublicIp() {
 let targets = [];
 
 if (haveMasscan && CIDRS.length) {
-  // 限制网段数量，避免超时
-  const limitedCidrs = CIDRS.slice(0, 20);
-  const rangeArgs = limitedCidrs.join(" ");
+  // 使用所有网段，不限制数量
+  const rangeArgs = CIDRS.join(" ");
   console.log(`[scan] masscan ${rangeArgs} -p11434 --rate ${MASSCAN_RATE}`);
   const raw = execSync(
     "sudo masscan " + rangeArgs + " -p11434 --rate " + MASSCAN_RATE + " --wait 3 --output-format list --output-file /tmp/masscan.txt 2>&1",
-    { encoding: "utf8", timeout: 15 * 60 * 1000 }
+    { encoding: "utf8", timeout: 20 * 60 * 1000 }
   );
   console.log(raw.trim());
   const lines = execSync('cat /tmp/masscan.txt 2>/dev/null | grep -E "^open tcp 11434" || echo ""', {
@@ -81,8 +80,8 @@ if (haveMasscan && CIDRS.length) {
   targets = [...new Set(targets)];
   console.log(`[scan] masscan open 11434 hosts: ${targets.length}`);
 } else if (CIDRS.length) {
-  // 限制网段数量
-  for (const cidr of CIDRS.slice(0, 50)) targets.push(...cidrHosts(cidr));
+  // 使用所有网段
+  for (const cidr of CIDRS) targets.push(...cidrHosts(cidr));
 } else {
   targets = Array.from({ length: COUNT }, randomPublicIp);
 }

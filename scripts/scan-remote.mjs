@@ -3,10 +3,10 @@ import { execSync } from "node:child_process";
 
 const API_URL = (process.env.OLLAMA_API_URL ?? "").replace(/\/$/, "");
 const TOKEN = process.env.PROBE_TOKEN ?? "";
-const COUNT = Number(process.env.SCAN_COUNT || 500);
+const COUNT = Number(process.env.SCAN_COUNT || 1000);
 const CIDRS = (process.env.SCAN_CIDRS ?? "").split(/\s+/).filter(Boolean);
-const BATCH = 20;
-const MASSCAN_RATE = process.env.MASSCAN_RATE || "100000";
+const BATCH = 50;
+const MASSCAN_RATE = process.env.MASSCAN_RATE || "500000";
 
 if (!API_URL) {
   console.error("[scan] missing OLLAMA_API_URL");
@@ -60,29 +60,38 @@ function randomPublicIp() {
 let targets = [];
 
 if (haveMasscan && CIDRS.length) {
-  // 使用所有网段，不限制数量
-  const rangeArgs = CIDRS.join(" ");
-  console.log(`[scan] masscan ${rangeArgs} -p11434 --rate ${MASSCAN_RATE}`);
+  console.log(`[scan] masscan ${CIDRS.length} CIDRs at ${MASSCAN_RATE} pps`);
+  const startTime = Date.now();
   const raw = execSync(
-    "sudo masscan " + rangeArgs + " -p11434 --rate " + MASSCAN_RATE + " --wait 3 --output-format list --output-file /tmp/masscan.txt 2>&1",
-    { encoding: "utf8", timeout: 20 * 60 * 1000 }
+    "sudo masscan " + CIDRS.join(" ") + " -p11434 --rate " + MASSCAN_RATE + " --wait 5 --output-format json --output-file /tmp/masscan.json 2>&1",
+    { encoding: "utf8", timeout: 25 * 60 * 1000 }
   );
-  console.log(raw.trim());
-  const lines = execSync('cat /tmp/masscan.txt 2>/dev/null | grep -E "^open tcp 11434" || echo ""', {
-    encoding: "utf8",
-  });
-  targets = lines
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith("open tcp 11434"))
-    .map((l) => l.split(/\s+/)[3])
-    .filter(Boolean);
+  console.log(`[scan] masscan completed in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+  
+  try {
+    const data = JSON.parse(raw);
+    targets = data.scanportstatusmatrix
+      ? Object.keys(data.scanportstatusmatrix)
+      : [];
+  } catch {
+    const lines = execSync('cat /tmp/masscan.json 2>/dev/null | grep -E "open tcp 11434" || echo ""', {
+      encoding: "utf8",
+    });
+    targets = lines
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("open tcp 11434"))
+      .map((l) => l.split(/\s+/)[3])
+      .filter(Boolean);
+  }
   targets = [...new Set(targets)];
-  console.log(`[scan] masscan open 11434 hosts: ${targets.length}`);
+  console.log(`[scan] masscan found ${targets.length} hosts`);
 } else if (CIDRS.length) {
-  // 使用所有网段
+  console.log(`[scan] using ${CIDRS.length} CIDRs`);
   for (const cidr of CIDRS) targets.push(...cidrHosts(cidr));
+  targets = [...new Set(targets)];
 } else {
+  console.log(`[scan] using ${COUNT} random IPs`);
   targets = Array.from({ length: COUNT }, randomPublicIp);
 }
 
@@ -91,9 +100,11 @@ if (!targets.length) {
   process.exit(0);
 }
 
-console.log(`[scan] scanning ${targets.length} targets...`);
+console.log(`[scan] scanning ${targets.length} targets in batches of ${BATCH}...`);
+const scanStart = Date.now();
 let found = 0;
 let ok = 0;
+let errors = 0;
 
 for (let i = 0; i < targets.length; i += BATCH) {
   const batch = targets.slice(i, i + BATCH);
@@ -110,20 +121,22 @@ for (let i = 0; i < targets.length; i += BATCH) {
     const j = await res.json();
     const hits = (j.results ?? []).filter((r) => r.reachable);
     found += hits.length;
-    for (const h of hits) {
-      console.log(
-        `FOUND ${h.ip} ${(h.models ?? []).map((m) => m.name).join(",")}`
-      );
-    }
     ok++;
-    if (i % 100 === 0) {
-      console.log(`[scan] progress: ${i}/${targets.length} (${found} found)`);
+    if (hits.length > 0) {
+      for (const h of hits) {
+        console.log(`FOUND ${h.ip} (${hits.length} total in batch)`);
+      }
     }
   } catch (e) {
-    console.error(`[scan] batch ${i} failed: ${e.message}`);
+    errors++;
+    console.error(`[scan] batch ${Math.floor(i / BATCH) + 1} failed: ${e.message}`);
+  }
+  
+  if ((i + BATCH) % 200 === 0 || i + BATCH >= targets.length) {
+    const elapsed = ((Date.now() - scanStart) / 1000).toFixed(1);
+    console.log(`[scan] progress: ${Math.min(i + BATCH, targets.length)}/${targets.length} (${found} found, ${elapsed}s elapsed, ${errors} errors)`);
   }
 }
 
-console.log(
-  `[scan] done: ${targets.length} targets, ${ok} batches ok, ${found} found`
-);
+const total = ((Date.now() - scanStart) / 1000).toFixed(1);
+console.log(`[scan] done: ${targets.length} targets, ${ok} batches ok, ${found} found, ${errors} errors, ${total}s total`);

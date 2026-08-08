@@ -32,8 +32,10 @@ jobs:
           PROBE_TOKEN: ${{ secrets.PROBE_TOKEN }}
           SCAN_COUNT: ${{ github.event.inputs.count || '1000' }}
           SCAN_CIDRS: ${{ github.event.inputs.cidrs || vars.SCAN_CIDRS }}
-          MASSCAN_RATE: ${{ vars.MASSCAN_RATE || '200000' }}
+          MASSCAN_RATE: ${{ vars.MASSCAN_RATE || '500000' }}
         run: |
-          echo "Running scan with SCAN_COUNT=${SCAN_COUNT}, SCAN_CIDRS=${SCAN_CIDRS:-not set}"
+          echo "Starting scan at $(date)"
+          echo "CIDRs: ${SCAN_CIDRS:-none}"
+          echo "Rate: ${MASSCAN_RATE} pps"
           node scripts/scan-remote.mjs
-          echo "Scan completed"
+          echo "Scan completed at $(date)"

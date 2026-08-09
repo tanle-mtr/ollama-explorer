@@ -6,6 +6,14 @@
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/tanle-mtr/ollama-explorer)
 [![GitHub](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 
+## 赞助项目
+
+如果你喜欢这个项目，欢迎微信赞助支持开发！
+
+<p align="center">
+  <img src="https://s41.ax1x.com/2026/08/09/pmHHt9P.png" alt="微信赞助二维码" width="250">
+</p>
+
 ## 功能特性
 
 - 类 FOFA 语法检索 `port="11434" && status_code="200"`

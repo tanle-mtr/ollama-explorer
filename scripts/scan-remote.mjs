@@ -7,6 +7,8 @@ const COUNT = Number(process.env.SCAN_COUNT || 1000);
 const CIDRS = (process.env.SCAN_CIDRS ?? "").split(/\s+/).filter(Boolean);
 const BATCH = 50;
 const MASSCAN_RATE = process.env.MASSCAN_RATE || "500000";
+const MAX_CIDRS = 50;
+const MASSCAN_TIMEOUT = 10 * 60 * 1000;
 
 if (!API_URL) {
   console.error("[scan] missing OLLAMA_API_URL");
@@ -60,35 +62,42 @@ function randomPublicIp() {
 let targets = [];
 
 if (haveMasscan && CIDRS.length) {
-  console.log(`[scan] masscan ${CIDRS.length} CIDRs at ${MASSCAN_RATE} pps`);
+  const selected = CIDRS.slice(0, MAX_CIDRS);
+  console.log(`[scan] masscan ${selected.length} CIDRs at ${MASSCAN_RATE} pps (max ${MAX_CIDRS})`);
   const startTime = Date.now();
-  const raw = execSync(
-    "sudo masscan " + CIDRS.join(" ") + " -p11434 --rate " + MASSCAN_RATE + " --wait 5 --output-format json --output-file /tmp/masscan.json 2>&1",
-    { encoding: "utf8", timeout: 25 * 60 * 1000 }
-  );
-  console.log(`[scan] masscan completed in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
-  
   try {
-    const data = JSON.parse(raw);
-    targets = data.scanportstatusmatrix
-      ? Object.keys(data.scanportstatusmatrix)
-      : [];
-  } catch {
-    const lines = execSync('cat /tmp/masscan.json 2>/dev/null | grep -E "open tcp 11434" || echo ""', {
-      encoding: "utf8",
-    });
-    targets = lines
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith("open tcp 11434"))
-      .map((l) => l.split(/\s+/)[3])
-      .filter(Boolean);
+    const raw = execSync(
+      "sudo masscan " + selected.join(" ") + " -p11434 --rate " + MASSCAN_RATE + " --wait 5 --output-format json --output-file /tmp/masscan.json 2>&1",
+      { encoding: "utf8", timeout: MASSCAN_TIMEOUT }
+    );
+    console.log(`[scan] masscan completed in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    
+    try {
+      const data = JSON.parse(raw);
+      targets = data.scanportstatusmatrix
+        ? Object.keys(data.scanportstatusmatrix)
+        : [];
+    } catch {
+      const lines = execSync('cat /tmp/masscan.json 2>/dev/null | grep -E "open tcp 11434" || echo ""', {
+        encoding: "utf8",
+      });
+      targets = lines
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith("open tcp 11434"))
+        .map((l) => l.split(/\s+/)[3])
+        .filter(Boolean);
+    }
+    targets = [...new Set(targets)];
+    console.log(`[scan] masscan found ${targets.length} hosts`);
+  } catch (e) {
+    console.error(`[scan] masscan failed: ${e.message}`);
+    console.log(`[scan] falling back to random IPs`);
+    targets = Array.from({ length: COUNT }, randomPublicIp);
   }
-  targets = [...new Set(targets)];
-  console.log(`[scan] masscan found ${targets.length} hosts`);
 } else if (CIDRS.length) {
-  console.log(`[scan] using ${CIDRS.length} CIDRs`);
-  for (const cidr of CIDRS) targets.push(...cidrHosts(cidr));
+  console.log(`[scan] using ${Math.min(CIDRS.length, MAX_CIDRS)} CIDRs`);
+  for (const cidr of CIDRS.slice(0, MAX_CIDRS)) targets.push(...cidrHosts(cidr));
   targets = [...new Set(targets)];
 } else {
   console.log(`[scan] using ${COUNT} random IPs`);

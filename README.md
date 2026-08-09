@@ -11,7 +11,7 @@
 如果你喜欢这个项目，欢迎微信赞助支持开发！
 
 <p align="center">
-  <img src="https://s41.ax1x.com/2026/08/09/pmHHt9P.png" alt="微信赞助二维码" width="250">
+  <img src="./assets/收款码.png" alt="微信赞助二维码" width="250">
 </p>
 
 ## 功能特性

@@ -5,6 +5,15 @@
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/tanle-mtr/ollama-explorer)
 [![GitHub](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
+[![Sponsor](https://img.shields.io/badge/-Sponsor-fa7971?logo=github-sponsors&logoColor=white)](https://s41.ax1x.com/2026/08/09/pmHHt9P.png)
+
+## 赞助项目
+
+如果你喜欢这个项目，欢迎赞助支持开发！
+
+<p align="center">
+  <img src="https://s41.ax1x.com/2026/08/09/pmHHt9P.png" alt="Sponsor" width="300">
+</p>
 
 ## 功能特性
 

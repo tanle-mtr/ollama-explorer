@@ -1,26 +1,18 @@
-import { redisConfigured, redisCommand, redisPipeline } from "@/lib/redis";
-import { matchHost, matchesModelTerm, normModel } from "@/lib/parser";
 import type {
   HostRecord,
   SearchFilters,
   SearchResult,
   Stats,
 } from "@/lib/types";
-import { createHash } from "node:crypto";
 
-const HOST_PREFIX = "ollama:host:";
-const ALL_KEY = "ollama:all";
-const MODELS_PREFIX = "ollama:models:";
-const NAMES_KEY = "ollama:modelnames";
-const PORT_PREFIX = "ollama:port:";
-const STATUS_PREFIX = "ollama:status:";
-const CACHE_PREFIX = "ollama:cache:";
-const TTL = 90 * 24 * 3600;
-const CACHE_TTL = 60;
+const DATA_FILE = "data.json";
+const GIST_DESCRIPTION = "Ollama Explorer Data - DO NOT EDIT MANUALLY";
 
-function stableKey(filters: SearchFilters, page: number, per: number): string {
-  const raw = JSON.stringify({ f: filters, p: page, n: per });
-  return CACHE_PREFIX + createHash("sha1").update(raw).digest("hex");
+interface StoreData {
+  hosts: Record<string, HostRecord>;
+  modelIndex: Record<string, string[]>;
+  names: string[];
+  updatedAt: number;
 }
 
 export interface OllamaStore {
@@ -32,124 +24,149 @@ export interface OllamaStore {
   getHosts(ips: string[]): Promise<HostRecord[]>;
 }
 
-class RedisStore implements OllamaStore {
-  async upsertHost(r: HostRecord): Promise<void> {
+class GitHubGistStore implements OllamaStore {
+  private gistId: string;
+  private token: string;
+  private lastData: StoreData | null = null;
+  private lastFetched: number = 0;
+  private readonly CACHE_TTL = 30 * 1000;
+
+  constructor() {
+    this.gistId = process.env.GITHUB_GIST_ID ?? "";
+    this.token = process.env.GITHUB_TOKEN ?? "";
+  }
+
+  private async fetchGist(): Promise<StoreData | null> {
+    if (!this.gistId || !this.token) return null;
+    
+    const now = Date.now();
+    if (this.lastData && now - this.lastFetched < this.CACHE_TTL) {
+      return this.lastData;
+    }
+
     try {
-      const cmds: Array<{ cmd: string; args: string[] }> = [
-        { cmd: "SET", args: [HOST_PREFIX + r.ip, JSON.stringify(r), "EX", String(TTL)] },
-        { cmd: "SADD", args: [ALL_KEY, r.ip] },
-        { cmd: "EXPIRE", args: [ALL_KEY, String(TTL)] },
-        { cmd: "SADD", args: [NAMES_KEY, ...r.models] },
-        { cmd: "EXPIRE", args: [NAMES_KEY, String(TTL)] },
-        { cmd: "SADD", args: [PORT_PREFIX + r.port, r.ip] },
-        { cmd: "EXPIRE", args: [PORT_PREFIX + r.port, String(TTL)] },
-        { cmd: "SADD", args: [STATUS_PREFIX + r.statusCode, r.ip] },
-        { cmd: "EXPIRE", args: [STATUS_PREFIX + r.statusCode, String(TTL)] },
-        ...r.models.map((m) => ({
-          cmd: "SADD",
-          args: [`${MODELS_PREFIX}${m}`, r.ip],
-        })),
-        ...r.models.map((m) => ({
-          cmd: "EXPIRE",
-          args: [`${MODELS_PREFIX}${m}`, String(TTL)],
-        })),
-      ];
-      await redisPipeline(cmds);
+      const res = await fetch(
+        `https://api.github.com/gists/${this.gistId}`,
+        {
+          headers: {
+            Authorization: `token ${this.token}`,
+            Accept: "application/vnd.github.v3+json",
+          },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+
+      if (!res.ok) return null;
+
+      const data = await res.json() as {
+        files?: Record<string, { content?: string }>;
+      };
+
+      const file = Object.values(data.files ?? {})[0];
+      if (!file?.content) return null;
+
+      const storeData = JSON.parse(file.content) as StoreData;
+      this.lastData = storeData;
+      this.lastFetched = now;
+      return storeData;
+    } catch {
+      return null;
+    }
+  }
+
+  private async saveGist(data: StoreData): Promise<void> {
+    if (!this.gistId || !this.token) return;
+
+    try {
+      await fetch(
+        `https://api.github.com/gists/${this.gistId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `token ${this.token}`,
+            "Content-Type": "application/json",
+            Accept: "application/vnd.github.v3+json",
+          },
+          body: JSON.stringify({
+            description: GIST_DESCRIPTION,
+            files: {
+              [DATA_FILE]: {
+                content: JSON.stringify(data, null, 2),
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(15000),
+        }
+      );
+      this.lastData = data;
+      this.lastFetched = Date.now();
     } catch (e) {
-      console.error("[Store] upsertHost error:", e);
+      console.error("[GitHubGistStore] save error:", e);
     }
   }
 
-  private async smembers(key: string): Promise<string[]> {
-    try {
-      const r = await redisCommand("SMEMBERS", [key]);
-      const result = Array.isArray(r) ? (r as string[]) : [];
-      // 排序确保顺序稳定，避免前端显示闪烁
-      return result.sort();
-    } catch {
-      return [];
+  private async loadData(): Promise<StoreData> {
+    let data = await this.fetchGist();
+    if (!data) {
+      data = { hosts: {}, modelIndex: {}, names: [], updatedAt: Date.now() };
+      if (this.gistId && this.token) {
+        await this.saveGist(data);
+      }
     }
+    return data;
   }
 
-  private async sunion(keys: string[]): Promise<string[]> {
-    try {
-      const r = await redisCommand("SUNION", keys);
-      return Array.isArray(r) ? (r as string[]) : [];
-    } catch {
-      return [];
+  async upsertHost(r: HostRecord): Promise<void> {
+    const data = await this.loadData();
+    
+    data.hosts[r.ip] = r;
+    
+    if (!data.modelIndex[r.ip]) {
+      data.modelIndex[r.ip] = [];
     }
-  }
-
-  private async sinter(keys: string[]): Promise<string[]> {
-    if (!keys.length) return [];
-    try {
-      const r = await redisCommand("SINTER", keys);
-      return Array.isArray(r) ? (r as string[]) : [];
-    } catch {
-      return [];
+    
+    const newModels = r.models.filter((m) => !data.names.includes(m));
+    if (newModels.length > 0) {
+      data.names.push(...newModels);
+    }
+    
+    data.updatedAt = Date.now();
+    
+    if (this.gistId && this.token) {
+      await this.saveGist(data);
     }
   }
 
   async getHosts(ips: string[]): Promise<HostRecord[]> {
-    if (!ips.length) return [];
-    try {
-      const raw = await redisPipeline(
-        ips.map((ip) => ({ cmd: "GET", args: [HOST_PREFIX + ip] }))
-      );
-      const hosts: HostRecord[] = [];
-      for (let i = 0; i < raw.length; i++) {
-        if (typeof raw[i] === "string") {
-          try {
-            hosts.push(JSON.parse(raw[i] as string));
-          } catch {
-            // 忽略损坏记录
-          }
-        }
-      }
-      return hosts;
-    } catch (e) {
-      console.error("[Store] getHosts error:", e);
-      return [];
-    }
+    const data = await this.loadData();
+    return ips
+      .map((ip) => data.hosts[ip])
+      .filter((h): h is HostRecord => Boolean(h));
   }
 
   async modelNames(): Promise<string[]> {
-    try {
-      return await this.smembers(NAMES_KEY);
-    } catch {
-      return [];
-    }
+    const data = await this.loadData();
+    return data.names;
   }
 
   async modelCounts(names: string[]): Promise<Record<string, number>> {
-    if (!names.length) return {};
-    try {
-      const raw = await redisPipeline(
-        names.map((n) => ({ cmd: "SCARD", args: [MODELS_PREFIX + n] }))
+    const data = await this.loadData();
+    const result: Record<string, number> = {};
+    for (const name of names) {
+      const hosts = Object.values(data.hosts).filter(
+        (h) => h.models.includes(name)
       );
-      const out: Record<string, number> = {};
-      names.forEach((n, i) => {
-        if (typeof raw[i] === "number") out[n] = raw[i] as number;
-      });
-      return out;
-    } catch {
-      return {};
+      result[name] = hosts.length;
     }
+    return result;
   }
 
   async stats(): Promise<Stats> {
-    try {
-      const raw = await redisPipeline([
-        { cmd: "SCARD", args: [ALL_KEY] },
-        { cmd: "SCARD", args: [NAMES_KEY] },
-      ]);
-      return {
-        hosts: typeof raw[0] === "number" ? (raw[0] as number) : 0,
-        models: typeof raw[1] === "number" ? (raw[1] as number) : 0,
-      };
-    } catch {
-      return { hosts: 0, models: 0 };
-    }
+    const data = await this.loadData();
+    return {
+      hosts: Object.keys(data.hosts).length,
+      models: data.names.length,
+    };
   }
 
   async search(
@@ -157,98 +174,41 @@ class RedisStore implements OllamaStore {
     page: number,
     per: number
   ): Promise<SearchResult> {
-    try {
-      const cacheKey = stableKey(filters, page, per);
-      const cached = await this.cacheGet(cacheKey);
-      if (cached) return cached;
-
-      let ips: string[] | null = null;
-      const intersectKeys: string[] = [];
-      if (filters.port) intersectKeys.push(PORT_PREFIX + String(filters.port));
-      if (filters.statusCode)
-        intersectKeys.push(STATUS_PREFIX + String(filters.statusCode));
-
-      if (filters.model) {
-        const modelList = Array.isArray(filters.model) ? filters.model : [filters.model];
-        const allModelIps: string[] = [];
-        
-        for (const model of modelList) {
-          const term = normModel(model);
-          const names = await this.modelNames();
-          const matched = names.filter((n) => matchesModelTerm(n, term));
-          if (!matched.length) continue;
-          const modelIps =
-            matched.length === 1
-              ? await this.smembers(MODELS_PREFIX + matched[0])
-              : await this.sunion(matched.map((n) => MODELS_PREFIX + n));
-          allModelIps.push(...modelIps);
+    const data = await this.loadData();
+    const hosts = Object.values(data.hosts).filter((h) => {
+      if (filters.ip) {
+        if (filters.ip.includes("/")) {
+          const [net, mask] = filters.ip.split("/");
+          const maskNum = parseInt(mask);
+          if (maskNum >= 8 && maskNum <= 32) {
+            const netParts = net.split(".").map(Number);
+            const hostParts = h.ip.split(".").map(Number);
+            const netInt =
+              ((netParts[0] << 24) | (netParts[1] << 16) | (netParts[2] << 8) | netParts[3]) >>> 0;
+            const hostInt =
+              ((hostParts[0] << 24) | (hostParts[1] << 16) | (hostParts[2] << 8) | hostParts[3]) >>> 0;
+            const maskInt = maskNum === 32 ? 0xffffffff : (0xffffffff << (32 - maskNum)) >>> 0;
+            if ((netInt & maskInt) !== (hostInt & maskInt)) return false;
+          }
+        } else if (h.ip !== filters.ip) {
+          return false;
         }
-        
-        const uniqueModelIps = [...new Set(allModelIps)];
-        
-        if (intersectKeys.length) {
-          const byOther = await this.sinter(intersectKeys);
-          const byOtherSet = new Set(byOther);
-          ips = uniqueModelIps.filter((ip) => byOtherSet.has(ip));
-        } else {
-          ips = uniqueModelIps;
-        }
-      } else if (intersectKeys.length) {
-        ips = await this.sinter(intersectKeys);
       }
-      if (!ips || ips.length === 0) ips = await this.smembers(ALL_KEY);
-
-      const hosts = (await this.getHosts(ips)).filter((h) => h && h.ip);
-      const filtered = hosts.filter((h) => matchHost(h, filters));
-      
-      const sortBy = (filters as any).sortBy || "lastSeen";
-      const sortOrder = (filters as any).sortOrder || "desc";
-      const multiplier = sortOrder === "asc" ? 1 : -1;
-      
-      filtered.sort((a, b) => {
-        if (sortBy === "tookMs") {
-          // tookMs 可能为空，使用 lastSeen 作为备用
-          const aTook = a.tookMs ?? a.lastSeen;
-          const bTook = b.tookMs ?? b.lastSeen;
-          return multiplier * (aTook - bTook);
-        } else if (sortBy === "ip") {
-          return multiplier * a.ip.localeCompare(b.ip);
-        }
-        return multiplier * (b.lastSeen - a.lastSeen);
-      });
-      
-      const total = filtered.length;
-      const result: SearchResult = {
-        total,
-        results: filtered.slice((page - 1) * per, page * per),
-      };
-      await this.cacheSet(cacheKey, result);
-      return result;
-    } catch (e) {
-      console.error("[Store] search error:", e);
-      return { total: 0, results: [] };
-    }
-  }
-
-  private async cacheGet(key: string): Promise<SearchResult | null> {
-    try {
-      const r = await redisCommand("GET", [key]);
-      if (typeof r !== "string") return null;
-      const j = JSON.parse(r) as SearchResult;
-      if (j && Array.isArray(j.results) && typeof j.total === "number")
-        return j;
-    } catch {
-      // 缓存失败不影响查询
-    }
-    return null;
-  }
-
-  private async cacheSet(key: string, result: SearchResult): Promise<void> {
-    try {
-      await redisCommand("SET", [key, JSON.stringify(result), "EX", String(CACHE_TTL)]);
-    } catch {
-      // 缓存写失败不影响查询
-    }
+      if (filters.port && h.port !== filters.port) return false;
+      if (filters.status_code && h.statusCode !== filters.status_code) return false;
+      if (filters.model) {
+        const modelLower = filters.model.toLowerCase();
+        const hasModel = h.models.some((m) => m.toLowerCase().includes(modelLower));
+        if (!hasModel) return false;
+      }
+      if (filters.country && h.country?.toUpperCase() !== filters.country.toUpperCase()) return false;
+      if (filters.hostname && !h.hostname?.toLowerCase().includes(filters.hostname.toLowerCase())) return false;
+      return true;
+    });
+    
+    hosts.sort((a, b) => b.lastSeen - a.lastSeen);
+    const total = hosts.length;
+    return { total, results: hosts.slice((page - 1) * per, page * per) };
   }
 }
 
@@ -302,12 +262,49 @@ class MemoryStore implements OllamaStore {
   }
 }
 
+function matchHost(h: HostRecord, filters: SearchFilters): boolean {
+  if (filters.ip) {
+    if (filters.ip.includes("/")) {
+      const [net, mask] = filters.ip.split("/");
+      const maskNum = parseInt(mask);
+      if (maskNum >= 8 && maskNum <= 32) {
+        const netParts = net.split(".").map(Number);
+        const hostParts = h.ip.split(".").map(Number);
+        const netInt =
+          ((netParts[0] << 24) | (netParts[1] << 16) | (netParts[2] << 8) | netParts[3]) >>> 0;
+        const hostInt =
+          ((hostParts[0] << 24) | (hostParts[1] << 16) | (hostParts[2] << 8) | hostParts[3]) >>> 0;
+        const maskInt = maskNum === 32 ? 0xffffffff : (0xffffffff << (32 - maskNum)) >>> 0;
+        if ((netInt & maskInt) !== (hostInt & maskInt)) return false;
+      }
+    } else if (h.ip !== filters.ip) {
+      return false;
+    }
+  }
+  if (filters.port && h.port !== filters.port) return false;
+  if (filters.status_code && h.statusCode !== filters.status_code) return false;
+  if (filters.model) {
+    const modelLower = filters.model.toLowerCase();
+    const hasModel = h.models.some((m) => m.toLowerCase().includes(modelLower));
+    if (!hasModel) return false;
+  }
+  if (filters.country && h.country?.toUpperCase() !== filters.country.toUpperCase()) return false;
+  if (filters.hostname && !h.hostname?.toLowerCase().includes(filters.hostname.toLowerCase())) return false;
+  return true;
+}
+
 const GLOBAL_KEY = "__ollama_explorer_store__";
 
 export function getStore(): OllamaStore {
   const g = globalThis as unknown as Record<string, OllamaStore>;
   if (!g[GLOBAL_KEY]) {
-    g[GLOBAL_KEY] = redisConfigured ? new RedisStore() : new MemoryStore();
+    const gistId = process.env.GITHUB_GIST_ID;
+    const token = process.env.GITHUB_TOKEN;
+    if (gistId && token) {
+      g[GLOBAL_KEY] = new GitHubGistStore();
+    } else {
+      g[GLOBAL_KEY] = new MemoryStore();
+    }
   }
   return g[GLOBAL_KEY];
 }

@@ -32,8 +32,8 @@ class GitHubGistStore implements OllamaStore {
   private readonly CACHE_TTL = 30 * 1000;
 
   constructor() {
-    this.gistId = process.env.GITHUB_GIST_ID ?? "";
-    this.token = process.env.GITHUB_TOKEN ?? "";
+    this.gistId = process.env.GIST_ID ?? "";
+    this.token = process.env.GH_TOKEN ?? "";
   }
 
   private async fetchGist(): Promise<StoreData | null> {
@@ -298,8 +298,8 @@ const GLOBAL_KEY = "__ollama_explorer_store__";
 export function getStore(): OllamaStore {
   const g = globalThis as unknown as Record<string, OllamaStore>;
   if (!g[GLOBAL_KEY]) {
-    const gistId = process.env.GITHUB_GIST_ID;
-    const token = process.env.GITHUB_TOKEN;
+    const gistId = process.env.GIST_ID;
+    const token = process.env.GH_TOKEN;
     if (gistId && token) {
       g[GLOBAL_KEY] = new GitHubGistStore();
     } else {
